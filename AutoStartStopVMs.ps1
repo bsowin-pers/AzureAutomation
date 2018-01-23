@@ -54,7 +54,7 @@
 [CmdletBinding()]
 param(
     [parameter(Mandatory=$false)]
-    [bool]$Simulate = $false,
+    [bool]$Simulate = $true,
     [parameter(Mandatory=$false)]
     [string]$DefaultScheduleIfNotPresent,
     [parameter(Mandatory=$false)]
@@ -62,9 +62,9 @@ param(
 )
 
 $VERSION = '3.3.0'
-$autoShutdownTagName = 'AutoShutdownSchedule'
-$autoShutdownOrderTagName = 'ProcessingOrder'
-$autoShutdownDisabledTagName = 'AutoShutdownDisabled'
+$autoShutdownTagName = "AutoShutdownSchedule"
+$autoShutdownOrderTagName = "ProcessingOrder"
+$autoShutdownDisabledTagName = "AutoShutdownDisabled"
 $defaultOrder = 1000
 
 $ResourceProcessors = @(
@@ -291,9 +291,11 @@ try
     }
 
     # Get resource groups that are tagged for automatic shutdown of resources
-    $taggedResourceGroups = Find-AzureRmResourceGroup -Tag @{ "AutoShutdownSchedule" = $null }              # This command finds all resource groups that have a tag named "AutoShutdownSchedule"
+    $taggedResourceGroups = Find-AzureRmResourceGroup -Tag @{Name = 'AutoShutdownSchedule'}              # This command finds all resource groups that have a tag named "AutoShutdownSchedule"
     $taggedResourceGroupNames = @($taggedResourceGroups | Select-Object Name)                               # Extracts the names of the resource groups
-    
+    #$taggedResourceGroupNames | Select-Object Name | Where-Object Name -eq "AutomationTesting"
+    $taggedResourceGroups.Name
+
     Write-Output "Found [$($taggedResourceGroupNames.Count)] schedule-tagged resource groups in subscription" 
     
     if($DefaultScheduleIfNotPresent) {
@@ -320,17 +322,21 @@ try
         }
 
         # Check for direct tag or group-inherited tag
-        if($resource.Tags.Count -gt 0 -and $resource.Tags.ContainsKey($autoShutdownTagName) -eq $true)              # Asserts resource-specified schedule if the tag is present for the individual resource
+        Write-Output "# of Tags = $($resource.Tags.Count)"
+        Write-Output "Resource Group = $( $resource.ResourceGroupName | Select-Object * )"
+        if($($resource.Tags.Count) -gt 0 -and $resource.Tags.Name -contains $autoShutdownTagName)              # Asserts resource-specified schedule if the tag is present for the individual resource
         {
+            Write-Output "[$($resource.Name)] = $( ($resource.Tags | Where-Object Name -eq $autoShutdownTagName)["Name"] ) : $( ($resource.Tags | Where-Object Name -eq $autoShutdownTagName)["Value"] )"
             # Resource has direct tag (possible for resource manager deployment model resources). Prefer this tag schedule.
-            $schedule = $resource.Tags.Item($autoShutdownTagName)
+            $schedule = ($resource.Tags | Where-Object Name -eq $autoShutdownTagName)["Value"]
             Write-Output "[$($resource.Name)]: `r`n`tADDING -- Found direct resource schedule tag with value: $schedule"
         }
-        elseif($taggedResourceGroupNames -contains $resource.ResourceGroupName)                                     # Uses the resource group's schedule if individual resource doesn't have a schedule tag and group does
+        elseif( $taggedResourceGroups -contains $resource.ResourceGroupName )                                     # Uses the resource group's schedule if individual resource doesn't have a schedule tag and group does
         {
+            Write-Output "$( (($parentGroup.Tags | Where-Object Name -eq $autoShutdownTagName)["Value"]) )"
             # resource belongs to a tagged resource group. Use the group tag
             $parentGroup = $resourceGroups | Where-Object Name -eq $resource.ResourceGroupName
-            $schedule = $parentGroup.Tags.Item($AUTOSHUTDOWNSCHEDULE_KEYWORD)
+            $schedule = ($parentGroup.Tags | Where-Object Name -eq $autoShutdownTagName)["Value"]
             Write-Output "[$($resource.Name)]: `r`n`tADDING -- Found parent resource group schedule tag with value: $schedule"
         }
         elseif($DefaultScheduleIfNotPresent)                        # If neither the resource nor resource group have a schedule tag, uses the default schedule if specified
@@ -429,4 +435,3 @@ finally
 {
     Write-Output "Runbook finished (Duration: $(('{0:hh\:mm\:ss}' -f ((GetCurrentDate) - $currentTime))))"
 }
-</endtime></starttime>
