@@ -1,4 +1,4 @@
-<#asdfdf
+<#
         .SYNOPSIS
         This Azure Automation runbook automates the scheduled shutdown and startup of resources in an Azure subscription. 
 
