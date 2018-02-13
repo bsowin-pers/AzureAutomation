@@ -251,6 +251,10 @@ try
 {
     $currentTime = GetCurrentDate               # Gets the current time/date
     Write-Output "Runbook started. Version: $VERSION"
+    #Write-Output "PowerShell Shell Details:"
+    #$PSVersionTable
+    #Write-Output "PowerShell Host Details:"
+    #$Host
     if($Simulate)                               # Runbooks actions depend on the value ('true'/'false') of $Simulate
     {
         Write-Output '*** Running in SIMULATE mode. No power actions will be taken. ***'
@@ -291,10 +295,8 @@ try
     }
 
     # Get resource groups that are tagged for automatic shutdown of resources
-    $taggedResourceGroups = Find-AzureRmResourceGroup -Tag @{Name = 'AutoShutdownSchedule'}              # This command finds all resource groups that have a tag named "AutoShutdownSchedule"
-    $taggedResourceGroupNames = @($taggedResourceGroups | Select-Object Name)                               # Extracts the names of the resource groups
-    #$taggedResourceGroupNames | Select-Object Name | Where-Object Name -eq "AutomationTesting"
-    $taggedResourceGroups.Name
+    Write-Output "Found Resource Groups: $( (Find-AzureRmResourceGroup -Tag @{ $autoShutdownTagName = $null }).name )"
+    $taggedResourceGroups = Find-AzureRmResourceGroup -Tag @{ $autoShutdownTagName = $null }              # This command finds all resource groups that have a tag named "AutoShutdownSchedule"
 
     Write-Output "Found [$($taggedResourceGroupNames.Count)] schedule-tagged resource groups in subscription" 
     
@@ -323,20 +325,19 @@ try
 
         # Check for direct tag or group-inherited tag
         Write-Output "# of Tags = $($resource.Tags.Count)"
-        Write-Output "Resource Group = $( $resource.ResourceGroupName | Select-Object * )"
-        if($($resource.Tags.Count) -gt 0 -and $resource.Tags.Name -contains $autoShutdownTagName)              # Asserts resource-specified schedule if the tag is present for the individual resource
+        if($($resource.Tags.Count) -gt 0 -and $resource.Tags.Keys -contains $autoShutdownTagName)              # Asserts resource-specified schedule if the tag is present for the individual resource
         {
-            Write-Output "[$($resource.Name)] = $( ($resource.Tags | Where-Object Name -eq $autoShutdownTagName)["Name"] ) : $( ($resource.Tags | Where-Object Name -eq $autoShutdownTagName)["Value"] )"
+            Write-Output "[$($resource.Name)] = $autoShutdownTagName : $($resource.Tags.$autoShutdownTagName)"
             # Resource has direct tag (possible for resource manager deployment model resources). Prefer this tag schedule.
-            $schedule = ($resource.Tags | Where-Object Name -eq $autoShutdownTagName)["Value"]
+            $schedule = $resource.Tags.$autoShutdownTagName
             Write-Output "[$($resource.Name)]: `r`n`tADDING -- Found direct resource schedule tag with value: $schedule"
         }
-        elseif( $taggedResourceGroups -contains $resource.ResourceGroupName )                                     # Uses the resource group's schedule if individual resource doesn't have a schedule tag and group does
+        elseif( $taggedResourceGroups.name -contains $resource.ResourceGroupName )                                     # Uses the resource group's schedule if individual resource doesn't have a schedule tag and group does
         {
-            Write-Output "$( (($parentGroup.Tags | Where-Object Name -eq $autoShutdownTagName)["Value"]) )"
             # resource belongs to a tagged resource group. Use the group tag
-            $parentGroup = $resourceGroups | Where-Object Name -eq $resource.ResourceGroupName
-            $schedule = ($parentGroup.Tags | Where-Object Name -eq $autoShutdownTagName)["Value"]
+            $parentGroup = ($taggedResourceGroups | Where-Object name -eq $resource.ResourceGroupName)
+            $schedule = $parentGroup.Tags.$autoShutdownTagName
+            Write-Output "Group Tags for $( $parentGroup.name ) = $autoShutdownTagName : $( $parentGroup.Tags.$autoShutdownTagName )"
             Write-Output "[$($resource.Name)]: `r`n`tADDING -- Found parent resource group schedule tag with value: $schedule"
         }
         elseif($DefaultScheduleIfNotPresent)                        # If neither the resource nor resource group have a schedule tag, uses the default schedule if specified
