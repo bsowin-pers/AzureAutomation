@@ -209,7 +209,7 @@ function Assert-ResourcePowerState
     # Gets the current PowerState of the passed resource
     #       Requires the $DesiredState (even though 2/3 of the $ResourceProcessors don't use it) because 1 of them does
     #           and this function doesn't distinguish between the resource types (and processors) itself.  It just calls
-    #           the $ResourceProcessors.PowerStateAction without preference for the specific processor
+    #           whatever processor is passed to it, one of which requires the $DesiredState
     $currentPowerState = & $processor.PowerStateAction -Resource $Resource -DesiredState $DesiredState
     # If should be started and isn't, start resource
     if($DesiredState -eq 'Started' -and $currentPowerState -notmatch 'Started|Starting|running')        # Checks to see if the desired state is 'started' and if the current state isn't 'started'
