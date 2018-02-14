@@ -61,7 +61,7 @@ param(
     [String] $Timezone = "Central Standard Time"
 )
 
-$VERSION = '3.3.0'
+$VERSION = '3.4.0'
 $autoShutdownTagName = "AutoShutdownSchedule"
 $autoShutdownOrderTagName = "ProcessingOrder"
 $autoShutdownDisabledTagName = "AutoShutdownDisabled"
@@ -69,10 +69,10 @@ $defaultOrder = 1000
 
 $ResourceProcessors = @(
     @{
-        ResourceType = 'Microsoft.ClassicCompute/virtualMachines'
-        PowerStateAction = { param([object]$Resource, [string]$DesiredState) (Get-AzureRmResource -ResourceId $Resource.ResourceId).Properties.InstanceView.PowerState }
-        StartAction = { param([string]$ResourceId) Invoke-AzureRmResourceAction -ResourceId $ResourceId -Action 'start' -Force } 
-        DeallocateAction = { param([string]$ResourceId) Invoke-AzureRmResourceAction -ResourceId $ResourceId -Action 'shutdown' -Force } 
+        ResourceType = 'Microsoft.ClassicCompute/virtualMachines'       # The resource type to process
+        PowerStateAction = { param([object]$Resource, [string]$DesiredState) (Get-AzureRmResource -ResourceId $Resource.ResourceId).Properties.InstanceView.PowerState }        # Returns the current Power State of the resource
+        StartAction = { param([string]$ResourceId) Invoke-AzureRmResourceAction -ResourceId $ResourceId -Action 'start' -Force }                    # When called, starts the VM
+        DeallocateAction = { param([string]$ResourceId) Invoke-AzureRmResourceAction -ResourceId $ResourceId -Action 'shutdown' -Force }            # When called, stops the VM
     },
     @{
         ResourceType = 'Microsoft.Compute/virtualMachines'
@@ -295,7 +295,7 @@ try
     }
 
     # Get resource groups that are tagged for automatic shutdown of resources
-    Write-Output "Found Resource Groups: $( (Find-AzureRmResourceGroup -Tag @{ $autoShutdownTagName = $null }).name )"
+    Write-Output "Found Resource Groups: $( (Find-AzureRmResourceGroup -Tag @{ $autoShutdownTagName = $null }).name )"          # Looks for resource groups that have the $autoShutdownTagName
     $taggedResourceGroups = Find-AzureRmResourceGroup -Tag @{ $autoShutdownTagName = $null }              # This command finds all resource groups that have a tag named "AutoShutdownSchedule"
 
     Write-Output "Found [$($taggedResourceGroupNames.Count)] schedule-tagged resource groups in subscription" 
@@ -323,21 +323,21 @@ try
             }
         }
 
-        # Check for direct tag or group-inherited tag
-        Write-Output "# of Tags = $($resource.Tags.Count)"
-        if($($resource.Tags.Count) -gt 0 -and $resource.Tags.Keys -contains $autoShutdownTagName)              # Asserts resource-specified schedule if the tag is present for the individual resource
+        # Check for direct tag or group-inherited tag.  Extract the schedule range value(s) for later parsing
+        Write-Output "# of Tags = $($resource.Tags.Count)"      # Check the number of tags on a resource (was mainly used for debugging)
+        if($($resource.Tags.Count) -gt 0 -and $resource.Tags.Keys -contains $autoShutdownTagName)              # Uses resource-specified schedule if the $autoShutdownTagName tag is present for the individual resource
         {
-            Write-Output "[$($resource.Name)] = $autoShutdownTagName : $($resource.Tags.$autoShutdownTagName)"
+            Write-Output "[$($resource.Name)] = $autoShutdownTagName : $($resource.Tags.$autoShutdownTagName)"          # If resource tag was found, display the matched resource and tag name/value (mainly used for debugging)
             # Resource has direct tag (possible for resource manager deployment model resources). Prefer this tag schedule.
-            $schedule = $resource.Tags.$autoShutdownTagName
+            $schedule = $resource.Tags.$autoShutdownTagName             # Extract the shutdown schedule for parsing.  Tag values are accessed via a property of the object with the name of the tag
             Write-Output "[$($resource.Name)]: `r`n`tADDING -- Found direct resource schedule tag with value: $schedule"
         }
         elseif( $taggedResourceGroups.name -contains $resource.ResourceGroupName )                                     # Uses the resource group's schedule if individual resource doesn't have a schedule tag and group does
         {
             # resource belongs to a tagged resource group. Use the group tag
-            $parentGroup = ($taggedResourceGroups | Where-Object name -eq $resource.ResourceGroupName)
-            $schedule = $parentGroup.Tags.$autoShutdownTagName
-            Write-Output "Group Tags for $( $parentGroup.name ) = $autoShutdownTagName : $( $parentGroup.Tags.$autoShutdownTagName )"
+            $parentGroup = ($taggedResourceGroups | Where-Object name -eq $resource.ResourceGroupName)          # Finds the resource group of the resource
+            $schedule = $parentGroup.Tags.$autoShutdownTagName             # Extract the shutdown schedule for parsing.  Tag values are accessed via a property of the object with the name of the tag
+            Write-Output "Group Tags for $( $parentGroup.name ) = $autoShutdownTagName : $( $parentGroup.Tags.$autoShutdownTagName )"       # If group tag was found, display the matched resource group and tag name/value (mainly used for debugging)
             Write-Output "[$($resource.Name)]: `r`n`tADDING -- Found parent resource group schedule tag with value: $schedule"
         }
         elseif($DefaultScheduleIfNotPresent)                        # If neither the resource nor resource group have a schedule tag, uses the default schedule if specified
@@ -353,7 +353,7 @@ try
             continue
         }
 
-        # Check that tag value was succesfully obtained
+        # Check that tag value was succesfully obtained.  Skips the resource if the schedule value couldn't be extracted
         if($schedule -eq $null)
         {
             Write-Output "[$($resource.Name) `- $($resource.ProcessingOrder)]: `r`n`tIGNORED -- Failed to get tagged schedule for resource. Skipping this resource."
@@ -366,7 +366,7 @@ try
         # Check each range against the current time to see if any schedule is matched
         $scheduleMatched = $false
         $matchedSchedule = $null
-        $neverStart = $false #if NeverStart is specified in range, do not wake-up machine
+        $neverStart = $false        # If 'NeverStart' is specified in range, do not wake-up machine.  Initial value is set to not having the 'NeverStart' value specified
         foreach($entry in $timeRangeList)
         {
             if((Test-ScheduleEntry -TimeRange $entry) -eq $true)            # Finds the first match (if present) and then exits the loop (don't need to find a second match even if present)
@@ -391,16 +391,16 @@ try
         if($resource.Name -eq '') {continue}            # If the 'ScheduleMatched' property is empty, skip that iteration and go to the next $resource
         $sortedResourceList = @()
         if($resource.Name -eq $false) {             # If the 'ScheduleMatched' property is false, then the resource needs to be started.  The resources will be started in the opposite order they were shutdown (the shutdown order being specified by the 'AutoShutdownOrder' tag)
-            # meaning we start resources, lower to higher
+            # meaning we start resources, lower to higher (e.g. A processing order tag of '100' will be processed before a tag of '200')
             $sortedResourceList += @($resource.Group | Sort  )
-        } else { 
+        } else {                                              # A processing order tag of '200' will be processed before a tag of '100'
             $sortedResourceList += @($resource.Group | Sort ProcessingOrder -Descending)
         }
 
-        foreach($resource in $sortedResourceList)
+        foreach($resource in $sortedResourceList)           # Iterate through the individual resources in the sorted groups
         {  
             # Enforce desired state for group resources based on result. 
-            if($resource.ScheduleMatched)                   # If the current time is during the specified schedule, sets the desired state to 'stopped'
+            if($resource.ScheduleMatched)                   # If the current time is during the specified schedule, adds and sets the desired state property to 'stopped'
             {
                 # Schedule is matched. Shut down the resource if it is running. 
                 Write-Output "[$($resource.Name) `- P$($resource.ProcessingOrder)]: `r`n`tASSERT -- Current time [$currentTime] falls within the scheduled shutdown range [$($resource.MatchedSchedule)]"
@@ -408,7 +408,7 @@ try
             }
             else
             {
-                if ($resource.NeverStart)                   # Sets the desired state to 'stopped' if the resource should be "Never Started"
+                if ($resource.NeverStart)                   # Sets the desired state to 'stopped' if the resource property of $resource.NeverStart evaluate to $true
                 {
                     Write-Output "[$($resource.Name)]: `tIGNORED -- Resource marked with NeverStart. Keeping the resources stopped."
                     Add-Member -InputObject $resource -Name DesiredState -MemberType NoteProperty -TypeName String -Value 'StoppedDeallocated'
