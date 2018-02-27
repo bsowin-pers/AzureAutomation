@@ -61,7 +61,7 @@ param(
     [String] $Timezone = "Central Standard Time"
 )
 
-$VERSION = '4.1.0'
+$VERSION = '4.3.0'
 $autoShutdownTagName = "AutoShutdownSchedule"
 $autoShutdownOrderTagName = "ProcessingOrder"
 $autoShutdownDisabledTagName = "AutoShutdownDisabled"
@@ -70,30 +70,26 @@ $defaultOrder = 1000
 $ResourceProcessors = @(
     @{
         ResourceType = 'Microsoft.ClassicCompute/virtualMachines'       # The resource type to process
-        PowerStateAction = { param([object]$Resource, [string]$DesiredState) (Get-AzureRmResource -ResourceId $Resource.ResourceId).Properties.InstanceView.PowerState }        # Returns the current Power State of the resource
+        # PowerStateAction = { param([object]$Resource, [string]$DesiredState) (Get-AzureRmResource -ResourceId $Resource.ResourceId).Properties.InstanceView.PowerState }        # Returns the current Power State of the resource
         StartAction = { param([string]$ResourceId) Invoke-AzureRmResourceAction -ResourceId $ResourceId -Action 'start' -Force }                    # When called, starts the VM
         DeallocateAction = { param([string]$ResourceId) Invoke-AzureRmResourceAction -ResourceId $ResourceId -Action 'shutdown' -Force }            # When called, stops the VM
     },
     @{
         ResourceType = 'Microsoft.Compute/virtualMachines'
-        PowerStateAction = { 
-            param([object]$Resource, [string]$DesiredState)
+        # PowerStateAction = { 
+        #     param([object]$Resource, [string]$DesiredState)
       
-            $vm = Get-AzureRmVM -ResourceGroupName $Resource.ResourceGroupName -Name $Resource.Name -Status
-            $currentStatus = $vm.Statuses | Where-Object Code -like 'PowerState*' 
-            $currentStatus.Code = $currentStatus.Code -replace 'PowerState/',''
-            # $currentStatus.Code -replace 'PowerState/',''
-            return $currentStatus
-            # return $currentStatus.Code
-            # Write-Output $currentStatus.Code
-        }
+        #     $vm = Get-AzureRmVM -ResourceGroupName $Resource.ResourceGroupName -Name $Resource.Name -Status
+        #     $currentStatus = $vm.Statuses | Where-Object Code -like 'PowerState*' 
+        #     $currentStatus.Code -replace 'PowerState/',''
+        # }
         StartAction = { param([string]$ResourceId) Invoke-AzureRmResourceAction -ResourceId $ResourceId -Action 'start' -Force } 
         DeallocateAction = { param([string]$ResourceId) Invoke-AzureRmResourceAction -ResourceId $ResourceId -Action 'deallocate' -Force } 
     },
     @{
         ResourceType = 'Microsoft.Compute/virtualMachineScaleSets'
         #since there is no way to get the status of a VMSS, we assume it is in the inverse state to force the action on the whole VMSS
-        PowerStateAction = { param([object]$Resource, [string]$DesiredState) if($DesiredState -eq 'StoppedDeallocated') { 'Started' } else { 'StoppedDeallocated' } }
+        # PowerStateAction = { param([object]$Resource, [string]$DesiredState) if($DesiredState -eq 'StoppedDeallocated') { 'Started' } else { 'StoppedDeallocated' } }
         StartAction = { param([string]$ResourceId) Invoke-AzureRmResourceAction -ResourceId $ResourceId -Action 'start' -Parameters @{ instanceIds = @('*') } -Force } 
         DeallocateAction = { param([string]$ResourceId) Invoke-AzureRmResourceAction -ResourceId $ResourceId -Action 'deallocate' -Parameters @{ instanceIds = @('*') } -Force } 
     }
@@ -115,6 +111,7 @@ function Test-ScheduleEntry ([string]$TimeRange)
     $currentMonth = $currentTime.ToString('MM')
     $currentYear = $currentTime.ToString('yyyy')
     $test_Message = "This is a test message at $currentTime"
+    $test_Message | Out-Host
     # $currentTime = [System.TimeZoneInfo]::ConvertTimeToUtc($currentTime,$([system.timezoneinfo]::GetSystemTimeZones() | Where-Object id -eq $Timezone))
     $midnight = $currentTime.AddDays(1).Date            # Returns the full date and time (midnight) of next day
     
@@ -130,7 +127,7 @@ function Test-ScheduleEntry ([string]$TimeRange)
             if($timeRangeComponents.Count -eq 2)        # Makes sure that there are two components for the range
             {
                 # Get-Date -Year 2000 -Month 12 -Day 31
-                # $rangeStart = Get-Date $timeRangeComponents[0]          # Sets the beginning and end date-times of the time range
+                # $rangeStart = $timeRangeComponents[0]          # Sets the beginning and end date-times of the time range
                 $rangeStart = Get-Date -Year $currentYear -Month $currentMonth -Day $currentDay $timeRangeComponents[0]          # Sets the beginning and end date-times of the time range
                 $return_Var.rangeStart1 = $rangeStart
                 # $rangeStart = Get-Date $(([System.TimeZoneInfo]::ConvertTimeToUtc($timeRangeComponents[0],$([system.timezoneinfo]::GetSystemTimeZones() | Where-Object id -eq $Timezone))).ToString('HH:mm:ss'))          # Sets the beginning and end date-times of the time range
@@ -200,8 +197,6 @@ function Test-ScheduleEntry ([string]$TimeRange)
     $return_Var.rangeStart2 = $rangeStart
     $return_Var.rangeEnd2 = $rangeEnd
 
-    # return $return_Var
-
     # Check if current time falls within range
     if($currentTime -ge $rangeStart -and $currentTime -le $rangeEnd)
     {
@@ -229,18 +224,12 @@ function Assert-ResourcePowerState
         [string]$DesiredState,
         [bool]$Simulate
     )
-        # [object]$ResourceProcessors
-        # [string]$StartTime
-    # )
 
     $currentTime = GetCurrentDate
     # $function_Messages = '' | Select-Object Standard,Error,Debug,Verbose
     $function_Messages = @{}
-    # $Messages.Standard = $Messages.Standard + "Current Time = $($currentTime)"
-    # $Messages.Standard = $Messages.Standard + "`r[$($resource.Name)] PowerState Assertion started @ [$($StartTime)]"
-    $function_Messages.Standard = $function_Messages.Standard + "`n[$($resource.Name)] PowerState Assertion started @ [$($currentTime)]"
+    $function_Messages.Standard = $function_Messages.Standard + "    [$($resource.Name)] PowerState Assertion started @ [$($currentTime)]"
 
-    # Write-Output "Test string" | Out-Host
     $processor = $ResourceProcessors | Where-Object ResourceType -eq $Resource.ResourceType                 # Processes the resource passed to this function based on which resource type it matches
     if(-not $processor) {
         throw ('Unable to find a resource processor for type ''{0}''. Resource: {1}' -f $Resource.ResourceType, ($Resource | ConvertTo-Json -Depth 5000))
@@ -249,27 +238,55 @@ function Assert-ResourcePowerState
     #       Requires the $DesiredState (even though 2/3 of the $ResourceProcessors don't use it) because 1 of them does
     #           and this function doesn't distinguish between the resource types (and processors) itself.  It just calls
     #           the $ResourceProcessors.PowerStateAction without preference for the specific processor
-    $currentPowerState = & $processor.PowerStateAction -Resource $Resource -DesiredState $DesiredState
-    # Write-Output $currentPowerState
-    # $currentPowerState = $currentPowerState + $(& $processor.PowerStateAction -Resource $Resource -DesiredState $DesiredState)
-    # $currentPowerState = $null
-    $function_Messages.Standard = $function_Messages.Standard + "`n`tCurrent processor is [$($processor.ResourceType)]"
-    # $function_Messages.Standard = $function_Messages.Standard + "`n`t$($processor.PowerStateAction)"
-    $function_Messages.Standard = $function_Messages.Standard + "`n`tCurrent power state is [$( $currentPowerState.GetType() )]"
-    $function_Messages.currentPowerState = $currentPowerState
-    # $function_Messages.currentStatus = $currentStatus.Code
+
+
+    ##### Edit Attempt Start #####
+
+
+    if ($processor.ResourceType -eq "Microsoft.ClassicCompute/virtualMachines") {
+        $currentPowerState = (Get-AzureRmResource -ResourceId $Resource.ResourceId).Properties.InstanceView.PowerState        # Returns the current Power State of the resource
+    }
+    elseif ($processor.ResourceType -eq "Microsoft.Compute/virtualMachines") {
+        $vm = Get-AzureRmVM -ResourceGroupName $Resource.ResourceGroupName -Name $Resource.Name -Status
+        $currentStatus = $vm.Statuses | Where-Object Code -like 'PowerState*'
+        # $currentStatus.Code -replace 'PowerState/',''
+        $currentStatus.Code = $currentStatus.Code -replace 'PowerState/',''
+        $currentPowerState = $currentStatus.Code
+    }
+    elseif ($processor.ResourceType -eq "Microsoft.ClassicCompute/virtualMachines") {
+        if($DesiredState -eq 'StoppedDeallocated') {
+            $currentPowerState = 'Started'
+        }
+        else {
+            $currentPowerState = 'StoppedDeallocated'
+        }
+    }
+    else {
+        throw ('Unable to find a resource processor for type ''{0}''. Resource: {1}' -f $Resource.ResourceType, ($Resource | ConvertTo-Json -Depth 5000))
+    }
+
+
+    ###### Edit Attempt End ######
+
+
+    # $currentPowerState = & $processor.PowerStateAction -Resource $Resource -DesiredState $DesiredState
+    # $currentPowerState = $processor.PowerStateAction
+
+    $function_Messages.Standard = $function_Messages.Standard + "`n`t    Current processor is [$($processor.ResourceType)]"
+
+    $function_Messages.Standard = $function_Messages.Standard + "`n`t    Current power state is [$currentPowerState]"
     # If should be started and isn't, start resource
     if($DesiredState -eq 'Started' -and $currentPowerState -notmatch 'Started|Starting|running')        # Checks to see if the desired state is 'started' and if the current state isn't 'started'
     {
         if($Simulate)
         {
             # Write-Host "`tSIMULATION -- Would have started resource. (No action taken)"               # If the $Simulate parameter is 'true', prints a message of the action
-            $function_Messages.Standard = $function_Messages.Standard + "`n`tSIMULATION -- Would have started resource. (No action taken)"               # If the $Simulate parameter is 'true', prints a message of the action
+            $function_Messages.Standard = $function_Messages.Standard + "`n`t    SIMULATION -- Would have started resource. (No action taken)"               # If the $Simulate parameter is 'true', prints a message of the action
         }
         else
         {
             # Write-Host "`tStarting resource"
-            $function_Messages.Standard = $function_Messages.Standard + "`n`tStarting resource"
+            $function_Messages.Standard = $function_Messages.Standard + "`n`t    Starting resource"
             & $processor.StartAction -ResourceId $Resource.ResourceId                                   # If the $Simulate parameter is 'false', performs the action
         }
     }
@@ -280,12 +297,12 @@ function Assert-ResourcePowerState
         if($Simulate)
         {
             # Write-Host "`tSIMULATION -- Would have stopped resource. (No action taken)"
-            $function_Messages.Standard = $function_Messages.Standard + "`n`tSIMULATION -- Would have stopped resource. (No action taken)"
+            $function_Messages.Standard = $function_Messages.Standard + "`n`t    SIMULATION -- Would have stopped resource. (No action taken)"
         }
         else
         {
             # Write-Host "`tStopping resource"
-            $function_Messages.Standard = $function_Messages.Standard + "`n`tStopping resource"
+            $function_Messages.Standard = $function_Messages.Standard + "`n`t    Stopping resource"
             & $processor.DeallocateAction -ResourceId $Resource.ResourceId
         }
     }
@@ -294,13 +311,13 @@ function Assert-ResourcePowerState
     else
     {
         # Write-Host "`tCurrent power state [$($currentPowerState)] is correct."        # Checks to see if the desired state is 'stopped' matches the current state
-        $function_Messages.Standard = $function_Messages.Standard + "`n`tCurrent power state [$($currentPowerState)] is correct."        # Checks to see if the desired state is 'stopped' matches the current state
+        $function_Messages.Standard = $function_Messages.Standard + "`n`t    Current power state [$($currentPowerState)] is correct."        # Checks to see if the desired state is 'stopped' matches the current state
     }
 
     $endTime = GetCurrentDate
     $elapsedTime = $endTime - $currentTime
-    $function_Messages.Standard = $function_Messages.Standard + "`n`tElapsed Time [$($elapsedTime)]"
-    $function_Messages.Standard = $function_Messages.Standard + "`n[$($resource.Name)] PowerState Assertion finished @ [$($endTime)]`r`n`n"
+    $function_Messages.Standard = $function_Messages.Standard + "`n    [$($resource.Name)] PowerState Assertion finished @ [$($endTime)]`r"
+    $function_Messages.Standard = $function_Messages.Standard + "`n`t    Elapsed Time [$($elapsedTime)]"
     return $function_Messages
 }
 
@@ -308,64 +325,21 @@ function Assert-ResourcePowerState
 $calling_AssertResourcePowerState = {
     param(
         $resource,
-        # $ResourceProcessors,
+        $ResourceProcessors,
         $Simulate,
         $Timezone
     )
-    # $this_Run = '' | Select-Object PowerState_Messages
-    $this_Run = @{}
-
-    $ResourceProcessors = $_ResourceProcessors
-
-    # Write-Host "Test string for Write-Host"
-
-    # Assert-ResourcePowerState -Resource $resource -DesiredState $resource.DesiredState -Simulate $Simulate
-    # $StartTime = GetCurrentDate
-    # $this_Run.ResourceProcessors = $ResourceProcessors
-    
-    # try
-    # {
-    #     # $this_Run = @{}
-
-    #     # $ResourceProcessors = $_ResourceProcessors
-
-    #     # $this_Run.PowerState_Messages = $this_Run.PowerState_Messages + $(Assert-ResourcePowerState -Resource $resource -DesiredState $resource.DesiredState -Simulate $Simulate -StartTime $StartTime)
-    #     # $this_Run.PowerState_Messages = $this_Run.PowerState_Messages + $(Assert-ResourcePowerState -Resource $resource -DesiredState $resource.DesiredState -Simulate $Simulate)
-    #     $this_Run.PowerState_Messages = Assert-ResourcePowerState -Resource $resource -DesiredState $resource.DesiredState -Simulate $Simulate
-
-    #     Write-Output $this_Run
-    # }
-    # catch
-    # {
-    #     # $this_Run.PowerState_Messages.errorMessage = $_.Exception.Message
-
-    #     Write-Output $this_Run
-    #     # throw "Unexpected exception: $errorMessage"
-    # }
+    $this_Run = '' | Select-Object PowerState_Messages
 
     $this_Run.PowerState_Messages = Assert-ResourcePowerState -Resource $resource -DesiredState $resource.DesiredState -Simulate $Simulate
-    # $this_Run.resourceProcessors = $ResourceProcessors
-    # $this_Run.PowerState_Messages = Assert-ResourcePowerState -Resource $resource -DesiredState $resource.DesiredState -Simulate $Simulate -ResourceProcessors $ResourceProcessors
-    
-    # $EndTime = GetCurrentDate
-    # $this_Run.PowerState_Messages.Standard = $this_Run.PowerState_Messages.Standard + "`r[$($resource.Name)] PowerState Assertion finished @ [$($currentTime)]"
 
-    Write-Output $this_Run
+    return $this_Run
 }
 
 # Main runbook content
 try
 {
-    # $timer = Measure-Command { [system.timezoneinfo]::GetSystemTimeZones() | Where-Object id -eq $Timezone }
-    # Write-Output "$timer"
-    # Measure-Command { $([system.timezoneinfo]::GetSystemTimeZones() | Where-Object id -eq $Timezone) | Out-Host }
-    # ([system.timezoneinfo]::GetSystemTimeZones() | Where-Object id -eq $Timezone) | Out-Host
-    # break
-    # $timezone_Info = [system.timezoneinfo]::GetSystemTimeZones() | Where-Object id -eq $Timezone
-
     $currentTime = GetCurrentDate               # Gets the current time/date
-    # $currentTime.ToString('dd')
-    # $currentTime.ToString('MM')
 
     # $VerbosePreference = 'Continue'
 
@@ -395,11 +369,19 @@ try
 
     $resourceList | ForEach-Object {                # Processes the order of the resources based on the 'ProcessingOrder' tag ($autoShutdownOrderTagName)
         if($_.Tags -and $_.Tags.ContainsKey($autoShutdownOrderTagName) ) {
-            $order = $_.Tags | ForEach-Object { if($_.ContainsKey($autoShutdownOrderTagName)) { $_.Item($autoShutdownOrderTagName) } }
+            $resource_Order = $_.Tags | ForEach-Object { if($_.ContainsKey($autoShutdownOrderTagName)) { $_.Item($autoShutdownOrderTagName) } }
         } else {
-            $order = $defaultOrder
+            $resource_Order = $defaultOrder
         }
-        Add-Member -InputObject $_ -Name ProcessingOrder -MemberType NoteProperty -TypeName Integer -Value $order
+
+        #####
+        #####
+        $group_Order = ([Math]::Ceiling(([int64]$resource_Order + 1)/100)) - 1
+        Add-Member -InputObject $_ -Name GroupOrder -MemberType NoteProperty -TypeName Integer -Value $group_Order
+        #####
+        #####
+        
+        Add-Member -InputObject $_ -Name ProcessingOrder -MemberType NoteProperty -TypeName Integer -Value $resource_Order
     }
 
     $resourceList | ForEach-Object {                # Checks to see if each resource has the auto-shutdown disabled
@@ -412,20 +394,23 @@ try
     }
 
     # Get resource groups that are tagged for automatic shutdown of resources
-    Write-Output "`tFound Resource Groups: $( (Find-AzureRmResourceGroup -Tag @{ $autoShutdownTagName = $null }).name )"          # Looks for resource groups that have the $autoShutdownTagName
+    # Write-Output "`tFound Resource Groups: $( (Find-AzureRmResourceGroup -Tag @{ $autoShutdownTagName = $null }).name )"          # Looks for resource groups that have the $autoShutdownTagName
     $taggedResourceGroups = Find-AzureRmResourceGroup -Tag @{ $autoShutdownTagName = $null }              # This command finds all resource groups that have a tag named "AutoShutdownSchedule"
 
-    Write-Output "Found [$( ($taggedResourceGroups.Name).Count)] schedule-tagged resource groups in subscription" 
+    Write-Output "`n`nFound [$( ($taggedResourceGroups.Name).Count)] schedule-tagged resource groups in subscription"
+    foreach ($resource_Group in $taggedResourceGroups) {
+        Write-Output "`t[$($resource_Group.Name)]: `r`n`t`tADDING -- Found resource group schedule tag with value: $($resource_Group.Tags.$autoShutdownTagName)"
+    }
     
     if($DefaultScheduleIfNotPresent) {
-        Write-Output "Default schedule was specified, all non tagged resources will inherit this schedule: $DefaultScheduleIfNotPresent"
+        Write-Output "`r`nDefault schedule was specified, all non tagged resources will inherit this schedule: $DefaultScheduleIfNotPresent"
     }
 
     # For each resource, determine
     #  - Is it directly tagged for shutdown or member of a tagged resource group
     #  - Is the current time within the tagged schedule 
     # Then assert its correct power state based on the assigned schedule (if present)
-    Write-Output "Processing [$($resourceList.Count)] resources found in subscription"
+    Write-Output "`r`nProcessing [$($resourceList.Count)] resources found in subscription"
     foreach($resource in $resourceList)
     {
         $schedule = $null
@@ -450,6 +435,7 @@ try
             # Resource has direct tag (possible for resource manager deployment model resources). Prefer this tag schedule.
             $schedule = $resource.Tags.$autoShutdownTagName             # Extract the shutdown schedule for parsing.  Tag values are accessed via a property of the object with the name of the tag
             Write-Output "`t[$($resource.Name)]: `r`n`t`tADDING -- Found direct resource schedule tag with value: $schedule"
+            # Write-Output "`r`n`t`tGroup Order is [$($resource.GroupOrder)]"
         }
         elseif( $taggedResourceGroups.name -contains $resource.ResourceGroupName )                                     # Uses the resource group's schedule if individual resource doesn't have a schedule tag and group does
         {
@@ -459,11 +445,13 @@ try
             # Write-Output "Group Tags for $( $parentGroup.name ) = $autoShutdownTagName : $( $parentGroup.Tags.$autoShutdownTagName )"       # If group tag was found, display the matched resource group and tag name/value (mainly used for debugging)
             Write-Verbose "Group Tags for $( $parentGroup.name ) = $autoShutdownTagName : $( $parentGroup.Tags.$autoShutdownTagName )"       # If group tag was found, display the matched resource group and tag name/value (mainly used for debugging)
             Write-Output "`t[$($resource.Name)]: `r`n`t`tADDING -- Found parent resource group schedule tag with value: $schedule"
+            # Write-Output "`r`n`t`tGroup Order is [$($resource.GroupOrder)]"
         }
         elseif($DefaultScheduleIfNotPresent)                        # If neither the resource nor resource group have a schedule tag, uses the default schedule if specified
         {
             $schedule = $DefaultScheduleIfNotPresent
             Write-Output "`t[$($resource.Name)]: `r`n`t`tADDING -- Using default schedule: $schedule"
+            # Write-Output "`r`n`t`tGroup Order is [$($resource.GroupOrder)]"
         }
         else
         {
@@ -501,10 +489,7 @@ try
             # foreach($time in $time_Info.timeRangeComponents) {
             #     Write-Output "`t`t`tTime Range Components (UTC) = $([System.TimeZoneInfo]::ConvertTimeToUtc($time,$([system.timezoneinfo]::GetSystemTimeZones() | Where-Object id -eq $Timezone)))"
             # }
-            # break
         
-        
-            # if((Test-ScheduleEntry -TimeRange $entry) -eq $true)            # Finds the first match (if present) and then exits the loop (don't need to find a second match even if present)
             if($time_Info.insideRange -eq $true)            # Finds the first match (if present) and then exits the loop (don't need to find a second match even if present)
             {
                 $scheduleMatched = $true
@@ -518,18 +503,13 @@ try
             }
         }
 
-        # break
-
         # Adds several members/values to the $resource object that can then be accessed later
         Add-Member -InputObject $resource -Name ScheduleMatched -MemberType NoteProperty -TypeName Boolean -Value $scheduleMatched
         Add-Member -InputObject $resource -Name MatchedSchedule -MemberType NoteProperty -TypeName Boolean -Value $matchedSchedule
         Add-Member -InputObject $resource -Name NeverStart -MemberType NoteProperty -TypeName Boolean -Value $neverStart
         Add-Member -InputObject $resource -Name TimeRangeList -MemberType NoteProperty -TypeName Boolean -value $timeRangeList
-
-        # $resource
     }
 
-    # break
 
     # PowerShell RunspacePool Initialization
     $initialSessionState = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()        # Setting up an initial session state object
@@ -542,9 +522,6 @@ try
 
     $initialSessionState.Commands.Add($functionEntry1)                                                           # And add it to the iss object
     $initialSessionState.Commands.Add($functionEntry2)                                                           # And add it to the iss object
-
-    $resource_ProcessorVar = New-Object System.Management.Automation.Runspaces.SessionStateVariableEntry("_ResourceProcessors", $ResourceProcessors, "")
-    $initialSessionState.Variables.Add($resource_ProcessorVar)
 
     # Attempt to set up a Runspace Pool
     [runspacefactory]::CreateRunspacePool() > $null
@@ -564,9 +541,50 @@ try
     $jobs = New-Object System.Collections.ArrayList
 
 
-    foreach($resource in $resourceList | Group-Object ScheduleMatched) {                # Groups all resources by the value of 'ScheduleMatched' (which is a boolean).  It then iterates through each group that was made
-        if($resource.Name -eq '') {continue}            # If the 'ScheduleMatched' property is empty, skip that iteration and go to the next $resource
+    $sorted_GroupList = @{}
+    foreach($resource in $resourceList | Group-Object ScheduleMatched, GroupOrder | Sort Values) {
+        $group_SchedMatch = ($resource | Select-Object Values).Values[0]
+        # if ( $($(@($True,$False)) -contains $($($resource | Select-Object Values).Values[0])) -eq $False) {continue}            # If the 'ScheduleMatched' property is empty, skip that iteration and go to the next $resource
+        if ( $($(@($True,$False)) -contains $group_SchedMatch) -eq $False) {continue}            # If the 'ScheduleMatched' property is empty, skip that iteration and go to the next $resource
+        
+        # $resource | Select-Object *
+        
+        if ($group_SchedMatch -eq $false) {
+            $sorted_GroupList.False = $sorted_GroupList.False + @($resource)
+        }
+        elseif ($group_SchedMatch -eq $true) {
+            $sorted_GroupList.True = $sorted_GroupList.True + @($resource)
+        }
+
+    }
+    $sorted_GroupList.False = ($sorted_GroupList.False | Sort Values)
+    $sorted_GroupList.True = ($sorted_GroupList.True | Sort Values -Descending)
+    # Write-Output "blah"
+
+    # Write-Output "Non-matched Groups"
+    # $sort_Groups.False | Select-Object *
+    # Write-Output "Matched Groups"
+    # $sort_Groups.True | Select-Object *
+    # Write-Output "Ordering of Matched Groups"
+    foreach ($key in $sorted_GroupList.Keys) {
+        Write-Output "The `'$key`' Groups"
+        foreach ($object in $sorted_GroupList.$key) {
+            Write-Output "===="
+            $sort_Resources = ($object.Group | Sort ProcessingOrder -Descending)
+            foreach ($resource in $sort_Resources) {
+                Write-Output "$($resource.ResourceName)`t|`t$($resource.ProcessingOrder)"
+            }
+        }
+    }
+    break
+
+    # foreach($resource in $resourceList | Group-Object ScheduleMatched) {                # Groups all resources by the value of 'ScheduleMatched' (which is a boolean).  It then iterates through each group that was made
+    # foreach($resource in $resourceList | Group-Object ScheduleMatched, GroupOrder) {                # Groups all resources by the value of 'ScheduleMatched' (which is a boolean).  It then iterates through each group that was made
+    foreach ($key in $sorted_GroupList.Keys) {                # Groups all resources by the value of 'ScheduleMatched' (which is a boolean).  It then iterates through each group that was made
+        # if($resource.Name -eq '') {continue}            # If the 'ScheduleMatched' property is empty, skip that iteration and go to the next $resource
+        # if ( $($(@($True,$False)) -contains $($($resource | Select-Object Values).Values[0])) -eq $False) {continue}            # If the 'ScheduleMatched' property is empty, skip that iteration and go to the next $resource
         $sortedResourceList = @()
+        # if($resource.Name -eq $false) {             # If the 'ScheduleMatched' property is false, then the resource needs to be started.  The resources will be started in the opposite order they were shutdown (the shutdown order being specified by the 'AutoShutdownOrder' tag)
         if($resource.Name -eq $false) {             # If the 'ScheduleMatched' property is false, then the resource needs to be started.  The resources will be started in the opposite order they were shutdown (the shutdown order being specified by the 'AutoShutdownOrder' tag)
             # meaning we start resources, lower to higher (e.g. A processing order tag of '100' will be processed before a tag of '200')
             $sortedResourceList += @($resource.Group | Sort  )
@@ -575,33 +593,24 @@ try
         }
 
 
+        # if ($resource.Name -eq $true) {
+        if ($($($resource | Select-Object Values).Values[0]) -eq $true) {
+            $group_Type = "Shutdown"
+        }
+        else {
+            $group_Type = "Startup"
+        }
 
+        $group_Number = $($($resource | Select-Object Values).Values[1])
 
-        $group_Type = $resource.Name
-        # $resource.Group.Name | Format-Table
-        # $resources_ToProcess = @{}
-        # $resources_ToProcess.Name = $resource.Group.Name
-        # $resources_ToProcess.Name | Format-Table
-
-
-        Write-Output "================================================================================`n`t`tStarting Group -> [Schedule Matched = $group_Type]`n================================================================================"
+        Write-Output "`n`n================================================================================`n`t`t`tStarting Group -> [ $group_Type G$group_Number ]`n================================================================================"
         foreach($resource in $sortedResourceList)           # Iterate through the individual resources in the sorted groups
         {  
-            $jobcreation_TimerStart = GetCurrentDate
-            # Write-Verbose "Just after foreach(`$resource in `$sorted..."
-            Write-Output "Just after foreach(`$resource in `$sorted..."
             # Enforce desired state for group resources based on result. 
             if($resource.ScheduleMatched)                   # If the current time is during the specified schedule, adds and sets the desired state property to 'stopped'
             {
                 # Schedule is matched. Shut down the resource if it is running. 
                 Write-Output "[$($resource.Name) `- P$($resource.ProcessingOrder)]: `r`n`tASSERT -- Current time [$currentTime] falls within the scheduled shutdown range [$($resource.MatchedSchedule)]"
-                # Write-Verbose "[$($resource.Name)]:`n`tSchedule List`n`t-------------`n`t$($resource.TimeRangeList)"
-                Write-Output "`t[$($resource.Name)]:`n`t`t`tSchedule List`n`t`t`t-------------`n`t`t`t$($resource.TimeRangeList)"
-                if ($resource -contains 'DesiredState') {
-                    Write-Output "`t`t`tDesired State: $($resource.DesiredState)"
-                }
-                # Write-Verbose "Just before adding DesiredState"
-                Write-Output "`t`t`tJust before adding DesiredState"
                 Add-Member -InputObject $resource -Name DesiredState -MemberType NoteProperty -TypeName String -Value 'StoppedDeallocated'
             }
             else
@@ -609,10 +618,6 @@ try
                 if ($resource.NeverStart)                   # Sets the desired state to 'stopped' if the resource property of $resource.NeverStart evaluate to $true
                 {
                     Write-Output "[$($resource.Name)]: `tIGNORED -- Resource marked with NeverStart. Keeping the resources stopped."
-                    if ($resource -contains 'DesiredState') {
-                        Write-Output "`t`t`tDesired State: $($resource.DesiredState)"
-                    }
-                    # Write-Verbose "Just before adding DesiredState"
                     Add-Member -InputObject $resource -Name DesiredState -MemberType NoteProperty -TypeName String -Value 'StoppedDeallocated'
                 }
                 else
@@ -620,82 +625,35 @@ try
                     # Schedule not matched. Start resource if stopped.
                     # If the current time is outside the specified schedule, sets the desired state to 'started'
                     Write-Output "[$($resource.Name) `- P$($resource.ProcessingOrder)]: `r`n`t`tASSERT -- Current time [$currentTime] falls outside of all scheduled shutdown ranges . Start resource."
-                    # Write-Verbose "[$($resource.Name)]:`n`tSchedule List`n`t-------------`n`t$($resource.TimeRangeList)"
-                    Write-Output "`t[$($resource.Name)]:`n`t`t`tSchedule List`n`t`t`t-------------`n`t`t`t$($resource.TimeRangeList)"
-                    if ($resource -contains 'DesiredState') {
-                        Write-Output "`t`t`tDesired State: $($resource.DesiredState)"
-                    }
-                    # Write-Verbose "Just before adding DesiredState"
-                    Write-Output "`t`t`tJust before adding DesiredState"
                     Add-Member -InputObject $resource -Name DesiredState -MemberType NoteProperty -TypeName Boolean -Value 'Started'
                 }                
             }
-            # $ThreadID = [appdomain]::GetCurrentThreadId()
-            # Write-Output "Current Thread ID = $ThreadID"
-                        
-            # Write-Verbose "Just before creating the job parameters"
-            Write-Output "`t`t`tJust before creating the job parameters"
+
             # Create the Parameters hashtable for this resource
             $parameters = @{
                 resource = $resource
-                # ResourceProcessors = $ResourceProcessors
+                ResourceProcessors = $ResourceProcessors
                 Simulate = $Simulate
                 Timezone = $Timezone
             }
 
-            # Write-Verbose "Just before creating the individual runspace"
-            Write-Output "`t`t`tJust before creating the individual runspace"
             # Create the runspace to process this machine
             $runspace = [System.Management.Automation.PowerShell]::Create($initialSessionState)
             $runspace.RunspacePool = $RunspacePool
 
-            # Write-Verbose "Just before adding the script and parameters"
-            Write-Output "`t`t`tJust before adding the script and parameters"
             # Add the function-calling script and the function parameters
             [void]$runspace.AddScript($calling_AssertResourcePowerState)
             [void]$runspace.AddParameters($parameters)
 
-            # Write-Verbose "Just before BeginInvoke()"
-            Write-Output "`t`t`tJust before BeginInvoke()"
-            # $handle = $runspace.BeginInvoke()
-            $timer1 = Measure-Command { $handle = $runspace.BeginInvoke() }
-
-            # $ThreadID = [appdomain]::GetCurrentThreadId()
-            # Write-Output "Current Thread ID = $ThreadID"
-            $timer2 = Measure-Command { Write-Verbose "Creating the temp variable" }
-            Write-Output "`t`t`tCreating the temp variable"
+            $handle = $runspace.BeginInvoke()           # Applies the desired state to the resources
             # $temp = '' | Select-Object runspace,handle
             $temp = @{}
-            # $temp
-            $timer3 = Measure-Command { Write-Verbose "runspace" }
-            $timer4 = $timer2 + $timer3
-            Write-Output "`t`tInvoke timer = $timer1"
-            Write-Output "`t`t`'Creating temp`' timer = $timer2"
-            Write-Output "`t`t`'runspace`' timer = $timer3"
-            Write-Output "`t`tBoth verbose timers = $timer4"
-            Write-Output "`t`t`tAdd runspace to temp"
             $temp.runspace = $runspace
-            # Write-Verbose "handle"
-            Write-Output "`t`t`tAdd handle to temp"
-            Write-Output "`t`t`t`$temp.handle = `$handle"
             $temp.handle = $handle
 
-            # $temp.handle | Select-Object *
-
-            # Write-Verbose "Just before adding temp to jobs"
-            Write-Output "`t`t`tJust before adding temp to jobs"
             [void]$jobs.Add($temp)
-            # $jobs.Add($temp) > $null
 
             Start-Sleep -Milliseconds 300
-            # Write-Verbose "End of resource: $($resource.Name)"
-            Write-Output "End of resource: $($resource.Name)"
-
-            $jobcreation_TimerEnd = GetCurrentDate
-            $jobcreation_Timespan = $jobcreation_TimerEnd - $jobcreation_TimerStart
-            Write-Output "`t`tJob timer = $jobcreation_Timespan"
-
-            # Assert-ResourcePowerState -Resource $resource -DesiredState $resource.DesiredState -Simulate $Simulate                  # Applies the desired state to the resources
         }
         
 
@@ -704,11 +662,21 @@ try
         Write-Output "Waiting for group to finish"
         # # Check if all the Runspaces have finished running
         $job_Count = 0
-        $sleep_Time=30
+        $sleep_Time=10
         while ( ($jobs.handle | Where-Object IsCompleted -eq $False).Count -gt 0 ) {
+            $sleep_Count=0
             if ( $( ($jobs.handle | Where-Object IsCompleted -eq $False).Count ) -ne $job_Count) {
                 $job_Count = $( ($jobs.handle | Where-Object IsCompleted -eq $False).Count )
                 Write-Output "`r`tThere are `'$job_Count`' unfinished jobs"
+            }
+            while ($sleep_Count -le 3) {
+                if (($jobs.handle | Where-Object IsCompleted -eq $False).Count -eq 0) {
+                    break
+                }
+                else {
+                    Start-Sleep -Seconds $sleep_Time
+                }
+                $sleep_Count++
             }
             # Write-Output "`r`tThere are `'$( ($jobs.handle | Where-Object IsCompleted -eq $False).Count )`' unfinished jobs"
             # Write-Output "Waiting `'$sleep_Time`' seconds for jobs to finish"
@@ -726,29 +694,17 @@ try
         
         # Standard,Error,Debug,Verbose
         # $result
-        
+        # $result.PowerState_Messages  | Select-Object *
 
-        # $result.PowerState_Messages | Select-Object *
-        # foreach($message_Type in $result.PowerState_Messages.Keys) {
-        #     # Write-Output $result.PowerState_Messages.$message_Body
-        #     # $message_Body | Select-Object *
-        #     # $message_Body
-        #     # Write-Output $($result.PowerState_Messages | Where-Object Keys -eq $message_Body)
-        #     # Write-Output $message_Body.Value
-        #     Write-Output $($result.PowerState_Messages.$message_Type)
-        # }
-
-        # $result.resourceProcessors | Select-Object *
-        $result.PowerState_Messages | Select-Object *
-
+        Write-Output "`r`n`n`t`t`t`tOutput Messages:`r`n--------------------------------------------------------------------------------`r`n--------------------------------------------------------------------------------`n"
         $result.PowerState_Messages | ForEach-Object {
-            Write-Output $_.Standard
-            Write-Output "`t`t`t==="
-            Write-Output $($_.currentPowerState | Select-Object *)
-            Write-Output "`t`t`t==="
-            Write-Output $_.errorMessage
-            Write-Output "`t`t`t==="
-            # Write-Host $_.Standard -f Green -b Black 6>&1
+            Write-Output "`t---------------------------------------------------------------"
+            # $_ | Select-Object *
+            foreach ($message in $_.Keys) {
+                Write-Output $_.$message
+                Write-Output "`r`n"
+            }
+            # Write-Output $_.Standard
             # if ( ($_.Error).Count -gt 0 ) {
             #     Write-Host $_.Error -f Yellow -b DarkRed
             # }
@@ -759,14 +715,16 @@ try
             #     Write-Host $_.Verbose -f Yellow -b DarkBlue
             # }
         }
+            Write-Output "`t---------------------------------------------------------------"
+        Write-Output "`r`n--------------------------------------------------------------------------------`r`n--------------------------------------------------------------------------------"
 
-        Write-Output "================================================================================`n`t`tFinished Group -> [Schedule Matched = $group_Type]`n================================================================================`n`n`n`n`n"
-
-        # $ThreadID = [appdomain]::GetCurrentThreadId()
-        # Write-Output "Current Thread ID = $ThreadID"
+        Write-Output "================================================================================`n`t`t`tFinished Group -> [ $group_Type G$group_Number ]`n================================================================================`n`n`n`n`n"
     }
-    # Write-Verbose "`t`t`tVerbose test message 1"
-    # Write-Output "`t`t`tVerbose test message 1"
+
+    #############################################
+    #############################################
+    #############################################
+
     Write-Output 'Finished processing resource schedules'
 }
 catch
@@ -788,7 +746,5 @@ catch
 }
 finally
 {
-    # Write-Verbose "Verbose test message 2"
-    # Write-Output "Verbose test message 2"
     Write-Output "Runbook finished (Duration: $(('{0:hh\:mm\:ss}' -f ((GetCurrentDate) - $currentTime))))"
 }
