@@ -58,11 +58,12 @@ param(
     [parameter(Mandatory=$false)]
     [string]$DefaultScheduleIfNotPresent,
     [parameter(Mandatory=$false)]
-    [String] $Timezone = "Central Standard Time"
+    [String] $Timezone = "Central Standard Time",
+    [parameter(Mandatory=$false)]
+    [String] $VMKeywords
 )
 
-
-$VERSION = '4.3.2'
+$VERSION = '4.4.0'
 $autoShutdownTagName = "AutoShutdownSchedule"
 $autoShutdownOrderTagName = "ProcessingOrder"
 $autoShutdownDisabledTagName = "AutoShutdownDisabled"
@@ -108,16 +109,11 @@ function Test-ScheduleEntry ([string]$TimeRange)
     # Initialize variables
     $rangeStart, $rangeEnd, $parsedDay = $null
     $currentTime = GetCurrentDate                       # Returns the full date and time of current day (e.g. Thursday, January 18, 2018 03:45:23 PM)
-    # $currentDay = $currentTime.ToString('dd')        # ToString('dddd, yyyy MMM dd HH:mm:ss'))
     $currentDay = $currentTime.Day        # ToString('dddd, yyyy MMM dd HH:mm:ss'))
-    # $current_DayofWeek = $currentTime.ToString('dddd')
     $currentDayofWeek = $currentTime.DayofWeek
-    # $currentMonth = $currentTime.ToString('MM')
     $currentMonth = $currentTime.Month
     $currentMonthName = $currentTime.ToString('MMM')
-    # $currentYear = $currentTime.ToString('yyyy')
     $currentYear = $currentTime.Year
-    # $currentTime = [System.TimeZoneInfo]::ConvertTimeToUtc($currentTime,$([system.timezoneinfo]::GetSystemTimeZones() | Where-Object id -eq $Timezone))
     $midnight = $currentTime.AddDays(1).Date            # Returns the full date and time (midnight) of next day
     
     $return_Var = @{}
@@ -131,12 +127,9 @@ function Test-ScheduleEntry ([string]$TimeRange)
             $timeRangeComponents = $TimeRange -split '->' | ForEach-Object {$_.Trim()}          # Splits the tag value using '->' as a delimiter
             if($timeRangeComponents.Count -eq 2)        # Makes sure that there are two components for the range
             {
-                # Get-Date -Year 2000 -Month 12 -Day 31
                 # $rangeStart = $timeRangeComponents[0]          # Sets the beginning and end date-times of the time range
                 $rangeStart = Get-Date -Year $currentYear -Month $currentMonth -Day $currentDay $timeRangeComponents[0]          # Sets the beginning and end date-times of the time range
                 $return_Var.rangeStart1 = $rangeStart
-                # $rangeStart = Get-Date $(([System.TimeZoneInfo]::ConvertTimeToUtc($timeRangeComponents[0],$([system.timezoneinfo]::GetSystemTimeZones() | Where-Object id -eq $Timezone))).ToString('HH:mm:ss'))          # Sets the beginning and end date-times of the time range
-                # $rangeEnd = Get-Date $timeRangeComponents[1]            # Sets the beginning and end date-times of the time range
                 $rangeEnd = Get-Date -Year $currentYear -Month $currentMonth -Day $currentDay $timeRangeComponents[1]            # Sets the beginning and end date-times of the time range
                 $return_Var.rangeEnd1 = $rangeEnd
  
@@ -168,10 +161,8 @@ function Test-ScheduleEntry ([string]$TimeRange)
             # If specified as day of week, check if today
             if([System.DayOfWeek].GetEnumValues() -contains $TimeRange)
             {
-                # if($TimeRange -eq (Get-Date).DayOfWeek)
                 if($TimeRange -eq $currentDayOfWeek)
                 {
-                    # $parsedDay = Get-Date  '00:00'
                     $parsedDay = $currentTime.Date
                 }
                 else
@@ -207,12 +198,10 @@ function Test-ScheduleEntry ([string]$TimeRange)
     # Check if current time falls within range
     if($currentTime -ge $rangeStart -and $currentTime -le $rangeEnd)
     {
-        # return $true            # e.g. Using the example from earlier (6PM->8AM), returns 'true' if 6PM (today) :: $currentTime :: 8AM (tomorrow)
         $return_Var.insideRange = $true            # e.g. Using the example from earlier (6PM->8AM), returns 'true' if 6PM (today) :: $currentTime :: 8AM (tomorrow)
     }
     else
     {
-        # return $false            # e.g. Using the example from earlier, returns 'false' if 8AM (today) :: $currentTime :: 6PM (today)
         $return_Var.insideRange = $false            # e.g. Using the example from earlier, returns 'false' if 8AM (today) :: $currentTime :: 6PM (today)
     }
 
@@ -251,7 +240,6 @@ function Assert-ResourcePowerState
     elseif ($processor.ResourceType -eq "Microsoft.Compute/virtualMachines") {
         $vm = Get-AzureRmVM -ResourceGroupName $Resource.ResourceGroupName -Name $Resource.Name -Status
         $currentStatus = $vm.Statuses | Where-Object Code -like 'PowerState*'
-        # $currentStatus.Code -replace 'PowerState/',''
         $currentStatus.Code = $currentStatus.Code -replace 'PowerState/',''
         $currentPowerState = $currentStatus.Code
     }
@@ -361,6 +349,29 @@ try
         Write-Output ("`tLooking for resources of type {0}" -f $_.ResourceType)
         $resourceList += @(Find-AzureRmResource -ResourceType $_.ResourceType)          # Adds the resource to the resource list
     }
+
+
+    ##############
+    ##############
+    ##############
+    if ($VMKeywords -ne '') {
+        $keyword_Matched_ResourceList = @()
+        $autoShutdownKeywords = @($VMKeywords -split ',' | ForEach-Object {$_.Trim()})
+        foreach ($resource in $resourceList){
+            foreach ($tag in $resource.Tags) {
+                $tag_Contents = @($tag.Values -split ',' | ForEach-Object {$_.Trim()})
+                foreach ($tag_Value in $tag_Contents) {
+                    if ($autoShutdownKeywords -contains $tag_Value) {
+                        $keyword_Matched_ResourceList += $resource
+                    }
+                }
+            }
+        }
+        $resourceList = $keyword_Matched_ResourceList
+    }
+    ##############
+    ##############
+    ##############
 
     $resourceList | ForEach-Object {                # Processes the order of the resources based on the 'ProcessingOrder' tag ($autoShutdownOrderTagName)
         if($_.Tags -and $_.Tags.ContainsKey($autoShutdownOrderTagName) ) {
@@ -657,7 +668,6 @@ try
             $jobs.clear()
             
             # Standard,Error,Debug,Verbose
-            # $result
             # $result.PowerState_Messages  | Select-Object *
 
             Write-Output "`r`n`n`t`t`t`tOutput Messages:`r`n--------------------------------------------------------------------------------`r`n--------------------------------------------------------------------------------`n"
