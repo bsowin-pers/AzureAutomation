@@ -61,7 +61,8 @@ param(
     [String] $Timezone = "Central Standard Time"
 )
 
-$VERSION = '4.3.1'
+
+$VERSION = '4.3.2'
 $autoShutdownTagName = "AutoShutdownSchedule"
 $autoShutdownOrderTagName = "ProcessingOrder"
 $autoShutdownDisabledTagName = "AutoShutdownDisabled"
@@ -107,11 +108,15 @@ function Test-ScheduleEntry ([string]$TimeRange)
     # Initialize variables
     $rangeStart, $rangeEnd, $parsedDay = $null
     $currentTime = GetCurrentDate                       # Returns the full date and time of current day (e.g. Thursday, January 18, 2018 03:45:23 PM)
-    $currentDay = $currentTime.ToString('dd')        # ToString('dddd, yyyy MMM dd HH:mm:ss'))
-    $currentMonth = $currentTime.ToString('MM')
-    $currentYear = $currentTime.ToString('yyyy')
-    $test_Message = "This is a test message at $currentTime"
-    $test_Message | Out-Host
+    # $currentDay = $currentTime.ToString('dd')        # ToString('dddd, yyyy MMM dd HH:mm:ss'))
+    $currentDay = $currentTime.Day        # ToString('dddd, yyyy MMM dd HH:mm:ss'))
+    # $current_DayofWeek = $currentTime.ToString('dddd')
+    $currentDayofWeek = $currentTime.DayofWeek
+    # $currentMonth = $currentTime.ToString('MM')
+    $currentMonth = $currentTime.Month
+    $currentMonthName = $currentTime.ToString('MMM')
+    # $currentYear = $currentTime.ToString('yyyy')
+    $currentYear = $currentTime.Year
     # $currentTime = [System.TimeZoneInfo]::ConvertTimeToUtc($currentTime,$([system.timezoneinfo]::GetSystemTimeZones() | Where-Object id -eq $Timezone))
     $midnight = $currentTime.AddDays(1).Date            # Returns the full date and time (midnight) of next day
     
@@ -163,9 +168,11 @@ function Test-ScheduleEntry ([string]$TimeRange)
             # If specified as day of week, check if today
             if([System.DayOfWeek].GetEnumValues() -contains $TimeRange)
             {
-                if($TimeRange -eq (Get-Date).DayOfWeek)
+                # if($TimeRange -eq (Get-Date).DayOfWeek)
+                if($TimeRange -eq $currentDayOfWeek)
                 {
-                    $parsedDay = Get-Date '00:00'
+                    # $parsedDay = Get-Date  '00:00'
+                    $parsedDay = $currentTime.Date
                 }
                 else
                 {
@@ -238,11 +245,6 @@ function Assert-ResourcePowerState
     #       Requires the $DesiredState (even though 2/3 of the $ResourceProcessors don't use it) because 1 of them does
     #           and this function doesn't distinguish between the resource types (and processors) itself.  It just calls
     #           the $ResourceProcessors.PowerStateAction without preference for the specific processor
-
-
-    ##### Edit Attempt Start #####
-
-
     if ($processor.ResourceType -eq "Microsoft.ClassicCompute/virtualMachines") {
         $currentPowerState = (Get-AzureRmResource -ResourceId $Resource.ResourceId).Properties.InstanceView.PowerState        # Returns the current Power State of the resource
     }
@@ -264,13 +266,6 @@ function Assert-ResourcePowerState
     else {
         throw ('Unable to find a resource processor for type ''{0}''. Resource: {1}' -f $Resource.ResourceType, ($Resource | ConvertTo-Json -Depth 5000))
     }
-
-
-    ###### Edit Attempt End ######
-
-
-    # $currentPowerState = & $processor.PowerStateAction -Resource $Resource -DesiredState $DesiredState
-    # $currentPowerState = $processor.PowerStateAction
 
     $function_Messages.Standard = $function_Messages.Standard + "`n`t    Current processor is [$($processor.ResourceType)]"
 
@@ -359,7 +354,7 @@ try
     
     $Conn = Get-AutomationConnection -Name AzureRunAsConnection             # Returns a hash table with the properties of the connection.
     $resourceManagerContext = Add-AzureRMAccount -ServicePrincipal -Tenant $Conn.TenantID -ApplicationId $Conn.ApplicationID -CertificateThumbprint $Conn.CertificateThumbprint
-    
+
     $resourceList = @()
     # Get a list of all supported resources in subscription
     $ResourceProcessors | ForEach-Object {              # Looks for resources of each $ResourceProcessors type
@@ -374,13 +369,8 @@ try
             $resource_Order = $defaultOrder
         }
 
-        #####
-        #####
         $group_Order = ([Math]::Ceiling(([int64]$resource_Order + 1)/100)) - 1
-        Add-Member -InputObject $_ -Name GroupOrder -MemberType NoteProperty -TypeName Integer -Value $group_Order
-        #####
-        #####
-        
+        Add-Member -InputObject $_ -Name GroupOrder -MemberType NoteProperty -TypeName Integer -Value $group_Order        
         Add-Member -InputObject $_ -Name ProcessingOrder -MemberType NoteProperty -TypeName Integer -Value $resource_Order
     }
 
@@ -584,7 +574,7 @@ try
                 if($resource.ScheduleMatched)                   # If the current time is during the specified schedule, adds and sets the desired state property to 'stopped'
                 {
                     # Schedule is matched. Shut down the resource if it is running. 
-                    Write-Output "[$($resource.Name) `- P$($resource.ProcessingOrder)]: `r`n`tASSERT -- Current time [$currentTime] falls within the scheduled shutdown range [$($resource.MatchedSchedule)]"
+                    Write-Output "[$($resource.Name) `- P$($resource.ProcessingOrder)]: `r`n`tASSERT -- Current time [$($currentTime.ToString('dddd, yyyy MMM dd HH:mm:ss'))] falls within the scheduled shutdown range [$($resource.MatchedSchedule)]"
                     Add-Member -InputObject $resource -Name DesiredState -MemberType NoteProperty -TypeName String -Value 'StoppedDeallocated'
                 }
                 else
@@ -598,7 +588,7 @@ try
                     {
                         # Schedule not matched. Start resource if stopped.
                         # If the current time is outside the specified schedule, sets the desired state to 'started'
-                        Write-Output "[$($resource.Name) `- P$($resource.ProcessingOrder)]: `r`n`t`tASSERT -- Current time [$currentTime] falls outside of all scheduled shutdown ranges . Start resource."
+                        Write-Output "[$($resource.Name) `- P$($resource.ProcessingOrder)]: `r`n`t`tASSERT -- Current time [$($currentTime.ToString('dddd, yyyy MMM dd HH:mm:ss'))] falls outside of all scheduled shutdown ranges. Start resource."
                         Add-Member -InputObject $resource -Name DesiredState -MemberType NoteProperty -TypeName Boolean -Value 'Started'
                     }                
                 }

@@ -251,10 +251,6 @@ try
 {
     $currentTime = GetCurrentDate               # Gets the current time/date
     Write-Output "Runbook started. Version: $VERSION"
-    #Write-Output "PowerShell Shell Details:"
-    #$PSVersionTable
-    #Write-Output "PowerShell Host Details:"
-    #$Host
     if($Simulate)                               # Runbooks actions depend on the value ('true'/'false') of $Simulate
     {
         Write-Output '*** Running in SIMULATE mode. No power actions will be taken. ***'
